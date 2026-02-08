@@ -1,14 +1,18 @@
 [Unit]
 Description=Redstone Minecraft Control Bot
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
 User=orianafawkes
 WorkingDirectory=/home/orianafawkes/redstone-mc
+EnvironmentFile=/home/orianafawkes/redstone-mc/.env
 
 ExecStart=/home/orianafawkes/redstone-mc/venv/bin/python bot.py
-Restart=always
-EnvironmentFile=/home/orianafawkes/redstone-mc/.env
+StartLimitIntervalSec=0
+Restart=on-failure
+RestartSec=15
 
 [Install]
 WantedBy=multi-user.target

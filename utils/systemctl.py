@@ -30,10 +30,3 @@ class Systemctl:
 
         subprocess.run(["sudo", "systemctl", "stop", service], check=False)
         return "stopped"
-
-    def stop_minecraft():
-        if BACKEND == "local":
-            print("[LOCAL] Would stop minecraft.service")
-            return
-
-        subprocess.run(["sudo", "systemctl", "stop", "minecraft"], check=False)

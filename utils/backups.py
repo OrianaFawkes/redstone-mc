@@ -5,12 +5,18 @@ BACKEND = os.getenv("BACKEND", "local")
 
 
 class BackupExecutor:
-    def run(self) -> bool:
+    def run(self) -> tuple[bool, str]:
         if BACKEND == "local":
-            print("[LOCAL] Would run backup-mc.sh")
-            return True
+            return True, "[LOCAL] backup skipped"
 
         result = subprocess.run(
-            ["/home/orianafawkes/backup-mc.sh"], capture_output=True
+            ["/home/orianafawkes/backup-mc.sh", "daily"],
+            capture_output=True,
+            text=True,
         )
-        return result.returncode == 0
+
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+
+        return True, result.stdout.strip()
+

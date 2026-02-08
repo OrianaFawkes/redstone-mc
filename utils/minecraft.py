@@ -35,11 +35,12 @@ class MinecraftServer:
     def status(self) -> str:
         return self.systemctl.is_active(self.service_name)
 
-    def start(self) -> str:
+    def start(self):
         status = self.status()
-        if status == "active":
-            return "already running"
+        if status in ("active", "activating"):
+            return "already starting"
         return self.systemctl.start(self.service_name)
+
 
     def stop(self) -> str:
         status = self.status()

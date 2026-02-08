@@ -9,12 +9,28 @@ CHECK_INTERVAL = 15
 
 
 class IdleWatchdog:
-    def __init__(self, mc: MinecraftServer):
+    def __init__(self, mc: MinecraftServer, backup_channel_id: str):
         state = load_state()
         self.mc = mc
+        self.backup_channel_id = backup_channel_id
+
         self.last_nonempty = state.get("last_nonempty", time.time())
         self.stopped_due_to_idle = state.get("stopped_due_to_idle", False)
+
         self.backups = BackupManager()
+
+    async def notify_backup(self, bot, message: str):
+        if not self.backup_channel_id:
+            return
+
+        channel = bot.get_channel(self.backup_channel_id)
+        if channel:
+            await channel.send(message)
+
+    def notify_server_started(self):
+        self.last_nonempty = time.time()
+        self.stopped_due_to_idle = False
+        self.persist()
 
     def persist(self):
         save_state(
@@ -29,20 +45,44 @@ class IdleWatchdog:
         print("Idle watchdog started")
 
         while not bot.is_closed():
-            players = get_player_count()
+            status = await asyncio.to_thread(self.mc.status)
+
+            if status != "active":
+                await asyncio.sleep(CHECK_INTERVAL)
+                continue
+
+            try:
+                players = get_player_count()
+            except Exception as e:
+                print(f"Player count failed: {e}")
+                await asyncio.sleep(CHECK_INTERVAL)
+                continue
 
             if players > 0:
                 self.last_nonempty = time.time()
                 self.stopped_due_to_idle = False
-                self.persist()
+                
             else:
                 idle_time = time.time() - self.last_nonempty
-                self.persist()
                 if idle_time >= IDLE_TIMEOUT and not self.stopped_due_to_idle:
-                    print("Idle timeout reached — stopping server")
-                    self.mc.stop()
-                    self.backups.maybe_backup(reason="idle_stop")
-                    self.stopped_due_to_idle = True
-                    self.persist()
+                    print("Idle timeout reached ! stopping server")
+                    
+                    await asyncio.to_thread(self.mc.stop)
 
+                    success, info = self.backups.run_with_info(reason="idle_stop")
+                    if success:
+                        await self.notify_backup(
+                            bot,
+                            f"Idle backup completed\n"
+                            f"File: `{info['file']}` ({info['size_mb']} MB)"
+                        )
+                    else:
+                        await self.notify_backup(
+                            bot,
+                            f"Idle backup FAILED\nReason: `{info}`"
+                        )
+                    
+                    self.stopped_due_to_idle = True
+                  
+            self.persist()
             await asyncio.sleep(CHECK_INTERVAL)
