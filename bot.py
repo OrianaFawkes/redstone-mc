@@ -24,6 +24,8 @@ systemctl = Systemctl(BACKEND)
 minecraft = MinecraftServer(systemctl)
 idle_watchdog = IdleWatchdog(minecraft, BACKUP_CHANNEL_ID)
 
+server_lock = asyncio.Lock()
+
 
 @bot.event
 async def on_ready():
@@ -44,115 +46,127 @@ async def on_ready():
 
 @bot.tree.command(name="mc_status", description="Check Minecraft server status")
 async def mc_status(interaction: discord.Interaction):
-    status = await asyncio.to_thread(minecraft.status)
+    async with server_lock:
+        status = await asyncio.to_thread(minecraft.status)
 
-    await interaction.response.send_message(f"Minecraft is **{status}**")
+        await interaction.response.send_message(f"Minecraft is **{status}**")
 
 
 @bot.tree.command(name="mc_start", description="Start the Minecraft server")
 async def mc_start(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
+    async with server_lock:
+        await interaction.response.defer(thinking=True)
 
-    result = await asyncio.to_thread(minecraft.start)
+        result = await asyncio.to_thread(minecraft.start)
 
-    await interaction.followup.send(f"Minecraft: {result}")
+        idle_watchdog.notify_server_started()
+
+        await interaction.followup.send(f"Minecraft: {result}")
 
 
 @bot.tree.command(name="mc_stop")
 async def mc_stop(interaction: discord.Interaction):
-    if interaction.guild is None or interaction.user.id != interaction.guild.owner_id:
-        await interaction.response.send_message(
-            "Only the server owner can use this command.",
-            ephemeral=True,
-        )
-        return
+    async with server_lock:
+        if (
+            interaction.guild is None
+            or interaction.user.id != interaction.guild.owner_id
+        ):
+            await interaction.response.send_message(
+                "Only the server owner can use this command.",
+                ephemeral=True,
+            )
+            return
 
-    await interaction.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True)
 
-    result = await asyncio.to_thread(minecraft.stop)
+        result = await asyncio.to_thread(minecraft.stop)
 
-    idle_watchdog.notify_server_started()
+        idle_watchdog.notify_server_started()
 
-    await interaction.followup.send(f"Minecraft: {result}")
+        await interaction.followup.send(f"Minecraft: {result}")
 
 
 @bot.tree.command(name="mc_restart", description="Restart the Minecraft server")
 async def mc_restart(interaction: discord.Interaction):
-    await interaction.response.defer(thinking=True)
+    async with server_lock:
+        await interaction.response.defer(thinking=True)
 
-    status = await asyncio.to_thread(minecraft.status)
+        status = await asyncio.to_thread(minecraft.status)
 
-    if status == "active":
-        await asyncio.to_thread(minecraft.stop)
+        if status == "active":
+            await asyncio.to_thread(minecraft.stop)
 
-    result = await asyncio.to_thread(minecraft.start)
+        result = await asyncio.to_thread(minecraft.start)
 
-    idle_watchdog.notify_server_started()
+        idle_watchdog.notify_server_started()
 
-    await interaction.followup.send("Minecraft server restarted.")
+        await interaction.followup.send("Minecraft server restarted.")
 
 
 @bot.tree.command(name="mc_idle", description="Show idle shutdown status")
 async def mc_idle(interaction: discord.Interaction):
-    status = await asyncio.to_thread(minecraft.status)
+    async with server_lock:
+        status = await asyncio.to_thread(minecraft.status)
 
-    if status != "active":
+        if status != "active":
+            await interaction.response.send_message(
+                "Minecraft server is currently **offline**."
+            )
+            return
+
+        idle_for = int(time.time() - idle_watchdog.last_nonempty)
+        remaining = max(0, IDLE_TIMEOUT - idle_for)
+
+        mins_idle = idle_for // 60
+        mins_left = remaining // 60
+        secs_left = remaining % 60
+
         await interaction.response.send_message(
-            "Minecraft server is currently **offline**."
+            f"**Minecraft is online**\n"
+            f"Idle for: **{mins_idle} min**\n"
+            f"Auto shutdown in: **{mins_left} min {secs_left} sec**"
         )
-        return
-
-    idle_for = int(time.time() - idle_watchdog.last_nonempty)
-    remaining = max(0, IDLE_TIMEOUT - idle_for)
-
-    mins_idle = idle_for // 60
-    mins_left = remaining // 60
-    secs_left = remaining % 60
-
-    await interaction.response.send_message(
-        f"**Minecraft is online**\n"
-        f"Idle for: **{mins_idle} min**\n"
-        f"Auto shutdown in: **{mins_left} min {secs_left} sec**"
-    )
 
 
 @bot.tree.command(name="mc_backup", description="Run a manual Minecraft backup")
 async def mc_backup(interaction: discord.Interaction):
-    if interaction.guild is None or interaction.user.id != interaction.guild.owner_id:
-        await interaction.response.send_message(
-            "Only the server owner can use this command.",
-            ephemeral=True,
-        )
-        return
-    
-    await interaction.response.defer(thinking=True)
+    async with server_lock:
+        if (
+            interaction.guild is None
+            or interaction.user.id != interaction.guild.owner_id
+        ):
+            await interaction.response.send_message(
+                "Only the server owner can use this command.",
+                ephemeral=True,
+            )
+            return
 
-    success, info = await asyncio.to_thread(
-        idle_watchdog.backups.run_with_info, "manual"
-    )
+        await interaction.response.defer(thinking=True)
 
-    if success:
-        await interaction.followup.send(
-            f"Backup completed successfully\n"
-            f"File: `{info['file']}`\n"
-            f"Size: {info['size_mb']} MB"
+        success, info = await asyncio.to_thread(
+            idle_watchdog.backups.run_with_info, "manual"
         )
-    else:
-        await interaction.followup.send(
-            f"Backup failed\n"
-            f"Error: `{info}`"
-        )
+
+        if success:
+            await interaction.followup.send(
+                f"Backup completed successfully\n"
+                f"File: `{info['file']}`\n"
+                f"Size: {info['size_mb']} MB"
+            )
+        else:
+            await interaction.followup.send(f"Backup failed\n" f"Error: `{info}`")
 
 
 @bot.tree.command(name="mc_backup_status", description="Show backup status and limits")
 async def mc_backup_status(interaction: discord.Interaction):
-    state = idle_watchdog.backups.state
+    async with server_lock:
+        state = idle_watchdog.backups.state
 
-    await interaction.response.send_message(
-        f"**Backup status**\n"
-        f"Today: {state.daily}\n"
-        f"This week: {state.weekly}"
-    )
+        await interaction.response.send_message(
+            f"**Backup status**\n"
+            f"Today: {state.daily}\n"
+            f"This week: {state.weekly}"
+        )
 
 
 bot.run(TOKEN)
