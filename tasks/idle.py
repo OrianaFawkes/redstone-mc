@@ -5,7 +5,7 @@ from utils.minecraft import get_player_count, MinecraftServer
 from utils.state import load_state, save_state
 
 IDLE_TIMEOUT = 10 * 60
-CHECK_INTERVAL = 15
+CHECK_INTERVAL = 30
 
 
 class IdleWatchdog:
@@ -51,10 +51,9 @@ class IdleWatchdog:
                 await asyncio.sleep(CHECK_INTERVAL)
                 continue
 
-            try:
-                players = get_player_count()
-            except Exception as e:
-                print(f"Player count failed: {e}")
+            players = await asyncio.to_thread(get_player_count)
+
+            if players is None:
                 await asyncio.sleep(CHECK_INTERVAL)
                 continue
 

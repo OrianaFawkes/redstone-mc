@@ -1,31 +1,33 @@
 import os
 import re
+from mcrcon import MCRcon
 from pathlib import Path
 from utils.systemctl import Systemctl
 
 BACKEND = os.getenv("BACKEND", "local")
 LOG_FILE = Path("/home/orianafawkes/minecraft-server/logs/latest.log")
-PLAYER_COUNT_RE = re.compile(r"There are (\d+) of a max")
 
+RCON_HOST = "127.0.0.1"
+RCON_PORT = 25575
+RCON_PASSWORD = "your_secure_password"
 
-def get_player_count() -> int:
-    if not LOG_FILE.exists():
-        return 0
+LIST_RE = re.compile(r"There are (\d+) of a max")
 
+def get_player_count() -> int | None:
     try:
-        with LOG_FILE.open("r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()[-100:]  # only scan recent lines
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
+            response = mcr.command("list")
 
-        for line in reversed(lines):
-            match = PLAYER_COUNT_RE.search(line)
-            if match:
-                return int(match.group(1))
+        match = LIST_RE.search(response)
+        if match:
+            return int(match.group(1))
+
+        print("[WARN] Unexpected RCON list response:", response)
+        return None
 
     except Exception as e:
-        print(f"[WARN] Failed to read player count: {e}")
-
-    return 0
-
+        print(f"[WARN] RCON player count failed: {e}")
+        return None
 
 class MinecraftServer:
     def __init__(self, systemctl: Systemctl):
