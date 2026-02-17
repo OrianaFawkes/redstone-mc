@@ -10,9 +10,12 @@ WorkingDirectory=/home/orianafawkes/redstone-mc
 EnvironmentFile=/home/orianafawkes/redstone-mc/.env
 
 ExecStart=/home/orianafawkes/redstone-mc/venv/bin/python bot.py
-StartLimitIntervalSec=0
+
 Restart=on-failure
 RestartSec=15
+
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

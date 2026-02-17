@@ -1,12 +1,16 @@
 import os
 import subprocess
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 BACKEND = os.getenv("BACKEND", "local")
 
 
 class Systemctl:
-    def __init__(self, backend: str):
-        self.backend = backend
+    def __init__(self, backend: str | None = None):
+        self.backend = backend or BACKEND
 
     def is_active(self, service: str) -> str:
         if self.backend == "local":

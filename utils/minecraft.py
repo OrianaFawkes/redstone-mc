@@ -1,33 +1,46 @@
 import os
 import re
-from mcrcon import MCRcon
-from pathlib import Path
+from dotenv import load_dotenv
+from mcipc.rcon.je import Client
 from utils.systemctl import Systemctl
 
-BACKEND = os.getenv("BACKEND", "local")
-LOG_FILE = Path("/home/orianafawkes/minecraft-server/logs/latest.log")
+load_dotenv()
 
 RCON_HOST = "127.0.0.1"
 RCON_PORT = 25575
-RCON_PASSWORD = "your_secure_password"
-
-LIST_RE = re.compile(r"There are (\d+) of a max")
+RCON_PASSWORD = os.getenv("RCON_PASSWORD")
+COLOR_CODE_RE = re.compile(r"§.")
+PLAYER_COUNT_RE = re.compile(r"There are (\d+) out of maximum")
 
 def get_player_count() -> int | None:
-    try:
-        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-            response = mcr.command("list")
+    if not RCON_PASSWORD:
+        print("[WARN] RCON password not set")
+        return None
 
-        match = LIST_RE.search(response)
+    try:
+        with Client(
+            RCON_HOST,
+            RCON_PORT,
+            passwd=RCON_PASSWORD,
+            timeout=3
+        ) as client:
+            response = client.run("list")
+
+        response = "".join(response).strip()
+        
+        response = COLOR_CODE_RE.sub("", response)
+
+        match = PLAYER_COUNT_RE.search(response)
         if match:
             return int(match.group(1))
 
-        print("[WARN] Unexpected RCON list response:", response)
+        print("[WARN] Unexpected RCON response:", response)
         return None
 
     except Exception as e:
-        print(f"[WARN] RCON player count failed: {e}")
+        print(f"[WARN] RCON player count failed: {repr(e)}")
         return None
+
 
 class MinecraftServer:
     def __init__(self, systemctl: Systemctl):
